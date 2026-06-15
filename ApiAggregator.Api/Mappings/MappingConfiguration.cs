@@ -4,6 +4,7 @@ using ApiAggregator.Api.GraphQL.Types;
 using ApiAggregator.Api.GraphQL.Inputs;
 using Mapster;
 using ApiAggregator.Application.Authentication.Commands;
+using ApiAggregator.Api.Contracts;
 
 namespace ApiAggregator.Api.Mappings;
 
@@ -35,6 +36,27 @@ public static class MappingConfiguration
             .NewConfig();
 
         TypeAdapterConfig<LoginResult, LoginResultType>
+            .NewConfig();
+
+        TypeAdapterConfig<LoginResult, LoginResponse>
+            .NewConfig()
+            .Map(dest => dest.AccessToken, src => src.Token);
+
+        TypeAdapterConfig<AggregatedItemDto, AggregatedItemResponse>
+            .NewConfig();
+
+        TypeAdapterConfig<ProviderResultDto, ProviderStatusResponse>
+            .NewConfig();
+
+        TypeAdapterConfig<AggregateDataResult, AggregateDataResponse>
+            .NewConfig()
+            .Map(dest => dest.Items, src => src.Items.Adapt<List<AggregatedItemResponse>>())
+            .Map(dest => dest.Providers, src => src.Providers.Adapt<List<ProviderStatusResponse>>());
+
+        TypeAdapterConfig<PerformanceBucketsDto, PerformanceBucketsResponse>
+            .NewConfig();
+
+        TypeAdapterConfig<ApiStatisticsDto, ApiStatisticsResponse>
             .NewConfig();
     }
 }

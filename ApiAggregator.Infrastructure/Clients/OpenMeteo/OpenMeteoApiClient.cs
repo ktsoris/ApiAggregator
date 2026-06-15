@@ -2,30 +2,38 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using ApiAggregator.Application.Aggregation.Models;
+using ApiAggregator.Application.Common.Caching;
 using ApiAggregator.Application.Common.Interfaces;
-using Microsoft.Extensions.Caching.Memory;
 
 namespace ApiAggregator.Infrastructure.Clients.OpenMeteo;
 
 public sealed class OpenMeteoApiClient : IExternalApiClient
 {
     private readonly HttpClient _httpClient;
-    private readonly IMemoryCache _cache;
+    private readonly IApiResponseCache _cache;
+    private readonly IApiCacheKeyFactory _cacheKeyFactory;
+    private readonly IAiErrorEnricher _aiErrorEnricher;
 
     public string SourceName => "OpenMeteo";
 
-    public OpenMeteoApiClient(HttpClient httpClient, IMemoryCache cache)
+    public OpenMeteoApiClient(
+        HttpClient httpClient,
+        IApiResponseCache cache,
+        IApiCacheKeyFactory cacheKeyFactory,
+        IAiErrorEnricher aiErrorEnricher)
     {
         _httpClient = httpClient;
-        _httpClient.BaseAddress = new Uri("https://api.open-meteo.com/v1/");
         _cache = cache;
+        _cacheKeyFactory = cacheKeyFactory;
+        _aiErrorEnricher = aiErrorEnricher;
+        _httpClient.BaseAddress = new Uri("https://api.open-meteo.com/v1/");
     }
 
     public async Task<ExternalApiFetchResult> FetchAsync(
         AggregateDataInput input,
         CancellationToken cancellationToken)
     {
-        var cacheKey = "openmeteo:athens";
+        var cacheKey = _cacheKeyFactory.CreateProviderCacheKey(SourceName, input);
         var stopwatch = Stopwatch.StartNew();
 
         try
@@ -61,15 +69,16 @@ public sealed class OpenMeteoApiClient : IExternalApiClient
                 Items = items
             };
 
-            _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
-
+            await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(10), cancellationToken);
             return result;
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
 
-            if (_cache.TryGetValue(cacheKey, out ExternalApiFetchResult? cached) && cached is not null)
+            var cached = await _cache.GetAsync<ExternalApiFetchResult>(cacheKey, cancellationToken);
+
+            if (cached is not null)
             {
                 return cached with
                 {
@@ -80,13 +89,18 @@ public sealed class OpenMeteoApiClient : IExternalApiClient
                 };
             }
 
+            var friendlyError = await _aiErrorEnricher.EnrichAsync(
+                SourceName,
+                ex.Message,
+                cancellationToken);
+
             return new ExternalApiFetchResult
             {
                 Source = SourceName,
                 Success = false,
                 UsedFallback = false,
                 ResponseTimeMs = stopwatch.ElapsedMilliseconds,
-                ErrorMessage = ex.Message
+                ErrorMessage = friendlyError
             };
         }
     }

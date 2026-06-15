@@ -1,30 +1,38 @@
 ﻿using System.Diagnostics;
 using System.Net.Http.Json;
 using ApiAggregator.Application.Aggregation.Models;
+using ApiAggregator.Application.Common.Caching;
 using ApiAggregator.Application.Common.Interfaces;
-using Microsoft.Extensions.Caching.Memory;
 
 namespace ApiAggregator.Infrastructure.Clients.HackerNews;
 
 public sealed class HackerNewsApiClient : IExternalApiClient
 {
     private readonly HttpClient _httpClient;
-    private readonly IMemoryCache _cache;
+    private readonly IApiResponseCache _cache;
+    private readonly IApiCacheKeyFactory _cacheKeyFactory;
+    private readonly IAiErrorEnricher _aiErrorEnricher;
 
     public string SourceName => "HackerNews";
 
-    public HackerNewsApiClient(HttpClient httpClient, IMemoryCache cache)
+    public HackerNewsApiClient(
+        HttpClient httpClient,
+        IApiResponseCache cache,
+        IApiCacheKeyFactory cacheKeyFactory,
+        IAiErrorEnricher aiErrorEnricher)
     {
         _httpClient = httpClient;
-        _httpClient.BaseAddress = new Uri("https://hacker-news.firebaseio.com/v0/");
         _cache = cache;
+        _cacheKeyFactory = cacheKeyFactory;
+        _aiErrorEnricher = aiErrorEnricher;
+        _httpClient.BaseAddress = new Uri("https://hacker-news.firebaseio.com/v0/");
     }
 
     public async Task<ExternalApiFetchResult> FetchAsync(
         AggregateDataInput input,
         CancellationToken cancellationToken)
     {
-        var cacheKey = "hackernews:topstories";
+        var cacheKey = _cacheKeyFactory.CreateProviderCacheKey(SourceName, input);
         var stopwatch = Stopwatch.StartNew();
 
         try
@@ -72,15 +80,16 @@ public sealed class HackerNewsApiClient : IExternalApiClient
                 Items = items
             };
 
-            _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
-
+            await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(5), cancellationToken);
             return result;
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
 
-            if (_cache.TryGetValue(cacheKey, out ExternalApiFetchResult? cached) && cached is not null)
+            var cached = await _cache.GetAsync<ExternalApiFetchResult>(cacheKey, cancellationToken);
+
+            if (cached is not null)
             {
                 return cached with
                 {
@@ -91,13 +100,18 @@ public sealed class HackerNewsApiClient : IExternalApiClient
                 };
             }
 
+            var friendlyError = await _aiErrorEnricher.EnrichAsync(
+                SourceName,
+                ex.Message,
+                cancellationToken);
+
             return new ExternalApiFetchResult
             {
                 Source = SourceName,
                 Success = false,
                 UsedFallback = false,
                 ResponseTimeMs = stopwatch.ElapsedMilliseconds,
-                ErrorMessage = ex.Message
+                ErrorMessage = friendlyError
             };
         }
     }

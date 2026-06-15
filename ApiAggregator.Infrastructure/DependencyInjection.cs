@@ -1,6 +1,8 @@
-﻿using ApiAggregator.Application.Common.Interfaces;
+﻿using ApiAggregator.Application.Common.Caching;
+using ApiAggregator.Application.Common.Interfaces;
 using ApiAggregator.Infrastructure.AI;
 using ApiAggregator.Infrastructure.Auth;
+using ApiAggregator.Infrastructure.Caching;
 using ApiAggregator.Infrastructure.Clients.GitHub;
 using ApiAggregator.Infrastructure.Clients.HackerNews;
 using ApiAggregator.Infrastructure.Clients.OpenMeteo;
@@ -38,6 +40,9 @@ public static class DependencyInjection
         services.Configure<OpenAiSettings>(configuration.GetSection("OpenAI"));
         services.AddHttpClient<AiErrorEnricher>();
         services.AddScoped<IAiErrorEnricher, AiErrorEnricher>();
+
+        services.AddScoped<IApiCacheKeyFactory, ApiCacheKeyFactory>();
+        services.AddScoped<IApiResponseCache, MemoryApiResponseCache>();
 
         return services;
     }

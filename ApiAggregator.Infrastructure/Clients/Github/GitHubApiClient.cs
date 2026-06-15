@@ -1,25 +1,34 @@
 ﻿using System.Diagnostics;
 using System.Net.Http.Json;
 using ApiAggregator.Application.Aggregation.Models;
+using ApiAggregator.Application.Common.Caching;
 using ApiAggregator.Application.Common.Interfaces;
-using Microsoft.Extensions.Caching.Memory;
 
 namespace ApiAggregator.Infrastructure.Clients.GitHub;
 
 public sealed class GitHubApiClient : IExternalApiClient
 {
     private readonly HttpClient _httpClient;
-    private readonly IMemoryCache _cache;
+    private readonly IApiResponseCache _cache;
+    private readonly IApiCacheKeyFactory _cacheKeyFactory;
+    private readonly IAiErrorEnricher _aiErrorEnricher;
 
     public string SourceName => "GitHub";
 
-    public GitHubApiClient(HttpClient httpClient, IMemoryCache cache)
+    public GitHubApiClient(
+        HttpClient httpClient,
+        IApiResponseCache cache,
+        IApiCacheKeyFactory cacheKeyFactory,
+        IAiErrorEnricher aiErrorEnricher)
     {
         _httpClient = httpClient;
+        _cache = cache;
+        _cacheKeyFactory = cacheKeyFactory;
+        _aiErrorEnricher = aiErrorEnricher;
+
         _httpClient.BaseAddress = new Uri("https://api.github.com/");
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "ApiAggregator");
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
-        _cache = cache;
     }
 
     public async Task<ExternalApiFetchResult> FetchAsync(
@@ -27,7 +36,7 @@ public sealed class GitHubApiClient : IExternalApiClient
         CancellationToken cancellationToken)
     {
         var keyword = input.Keyword ?? "dotnet";
-        var cacheKey = $"github:{keyword}";
+        var cacheKey = _cacheKeyFactory.CreateProviderCacheKey(SourceName, input);
         var stopwatch = Stopwatch.StartNew();
 
         try
@@ -39,7 +48,8 @@ public sealed class GitHubApiClient : IExternalApiClient
             response.EnsureSuccessStatusCode();
 
             var data = await response.Content
-                .ReadFromJsonAsync<GitHubSearchResponse>(cancellationToken: cancellationToken);
+                .ReadFromJsonAsync<GitHubSearchResponse>(
+                    cancellationToken: cancellationToken);
 
             stopwatch.Stop();
 
@@ -63,15 +73,16 @@ public sealed class GitHubApiClient : IExternalApiClient
                 Items = items
             };
 
-            _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
-
+            await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(5), cancellationToken);
             return result;
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
 
-            if (_cache.TryGetValue(cacheKey, out ExternalApiFetchResult? cached) && cached is not null)
+            var cached = await _cache.GetAsync<ExternalApiFetchResult>(cacheKey, cancellationToken);
+
+            if (cached is not null)
             {
                 return cached with
                 {
@@ -82,13 +93,18 @@ public sealed class GitHubApiClient : IExternalApiClient
                 };
             }
 
+            var friendlyError = await _aiErrorEnricher.EnrichAsync(
+                SourceName,
+                ex.Message,
+                cancellationToken);
+
             return new ExternalApiFetchResult
             {
                 Source = SourceName,
                 Success = false,
                 UsedFallback = false,
                 ResponseTimeMs = stopwatch.ElapsedMilliseconds,
-                ErrorMessage = ex.Message
+                ErrorMessage = friendlyError
             };
         }
     }

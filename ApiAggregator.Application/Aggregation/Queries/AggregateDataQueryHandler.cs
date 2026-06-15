@@ -1,7 +1,11 @@
-﻿using ApiAggregator.Application.Aggregation.Models;
+﻿using ApiAggregator.Application.Aggregation.Filtering;
+using ApiAggregator.Application.Aggregation.Models;
+using ApiAggregator.Application.Aggregation.Sorting;
 using ApiAggregator.Application.Common.Interfaces;
+using ApiAggregator.Application.Statistics.Store;
 using ApiAggregator.Domain.Entities;
 using MediatR;
+using Microsoft.Extensions.Logging;
 
 namespace ApiAggregator.Application.Aggregation.Queries;
 
@@ -10,13 +14,25 @@ public sealed class AggregateDataQueryHandler
 {
     private readonly IEnumerable<IExternalApiClient> _clients;
     private readonly IApiRequestLogRepository _logRepository;
+    private readonly IAggregatedItemFilter _filter;
+    private readonly IAggregatedItemSorter _sorter;
+    private readonly IApiStatisticsStore _statisticsStore;
+    private readonly ILogger<AggregateDataQueryHandler> _logger;
 
     public AggregateDataQueryHandler(
         IEnumerable<IExternalApiClient> clients,
-        IApiRequestLogRepository logRepository)
+        IApiRequestLogRepository logRepository,
+        IAggregatedItemFilter filter,
+        IAggregatedItemSorter sorter,
+        IApiStatisticsStore statisticsStore,
+        ILogger<AggregateDataQueryHandler> logger)
     {
         _clients = clients;
         _logRepository = logRepository;
+        _filter = filter;
+        _sorter = sorter;
+        _statisticsStore = statisticsStore;
+        _logger = logger;
     }
 
     public async Task<AggregateDataResult> Handle(
@@ -36,32 +52,24 @@ public sealed class AggregateDataQueryHandler
 
         foreach (var result in results)
         {
-            var log = ApiRequestLog.Create(
-                result.Source,
-                result.Success,
-                result.UsedFallback,
-                result.ResponseTimeMs,
-                result.ErrorMessage);
-
-            await _logRepository.AddAsync(log, cancellationToken);
+            if (result.Success)
+            {
+                _statisticsStore.RecordSuccess(result.Source, result.ResponseTimeMs);
+            }
+            else
+            {
+                _statisticsStore.RecordFailure(result.Source, result.ResponseTimeMs);
+            }
         }
 
-        await _logRepository.SaveChangesAsync(cancellationToken);
+        await TryPersistRequestLogsAsync(results, cancellationToken);
 
         var allItems = results
             .SelectMany(r => r.Items)
             .ToList();
 
-        if (!string.IsNullOrWhiteSpace(input.SortBy))
-        {
-            allItems = input.SortBy.ToLowerInvariant() switch
-            {
-                "date" => allItems.OrderByDescending(i => i.PublishedAt).ToList(),
-                "relevance" => allItems.OrderByDescending(i => i.RelevanceScore).ToList(),
-                "source" => allItems.OrderBy(i => i.Source).ToList(),
-                _ => allItems
-            };
-        }
+        var filteredItems = _filter.Apply(allItems, input);
+        var sortedItems = _sorter.Apply(filteredItems, input);
 
         var providers = results.Select(r => new ProviderResultDto
         {
@@ -75,8 +83,36 @@ public sealed class AggregateDataQueryHandler
 
         return new AggregateDataResult
         {
-            Items = allItems,
+            Items = sortedItems,
             Providers = providers
         };
+    }
+
+    private async Task TryPersistRequestLogsAsync(
+        ExternalApiFetchResult[] results,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var result in results)
+            {
+                var log = ApiRequestLog.Create(
+                    result.Source,
+                    result.Success,
+                    result.UsedFallback,
+                    result.ResponseTimeMs,
+                    result.ErrorMessage);
+
+                await _logRepository.AddAsync(log, cancellationToken);
+            }
+
+            await _logRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to persist API request logs to the database. " +
+                "Aggregation result is unaffected; in-memory statistics remain accurate.");
+        }
     }
 }
