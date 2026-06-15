@@ -1,0 +1,805 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-4789-9abc-1234567890ab",
+    "name": "API Aggregator",
+    "description": "Postman collection for the API Aggregator assignment. Tests authentication, aggregation across GitHub, HackerNews, and OpenMeteo, and request statistics, via both REST and GraphQL. REST is the primary, assignment-compliant interface (Swagger at http://localhost:5025/swagger); GraphQL (Hot Chocolate Nitro at https://localhost:7209/graphql/) is an additional interface that calls the same MediatR handlers. Built on Clean Architecture, MediatR, EF Core with PostgreSQL, and an in-memory thread-safe statistics store.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "00 - Authentication",
+      "description": "Handles user authentication via both REST and GraphQL. Authenticates a demo user against configured credentials and issues a JWT used to authorize subsequent REST and GraphQL operations. Both surfaces call LoginCommand / LoginCommandHandler.",
+      "item": [
+        {
+          "name": "Login (REST)",
+          "description": "Authenticates a user via the REST endpoint and stores the returned JWT in the `accessToken` environment variable. This token is required for all protected REST and GraphQL operations.\n\nEndpoint: `POST /api/auth/login`\nController: `AuthController`\nMediatR command: `LoginCommand` / `LoginCommandHandler`",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Login response indicates success\", function () {",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test(\"Login response contains an access token\", function () {",
+                  "    pm.expect(response.accessToken).to.exist;",
+                  "});",
+                  "",
+                  "if (response && response.accessToken) {",
+                  "    pm.environment.set(\"accessToken\", response.accessToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Authenticate User (GraphQL)",
+          "description": "Authenticates a user via the GraphQL `login` mutation and stores the returned JWT in the `accessToken` environment variable. This token is required for all protected REST and GraphQL operations.\n\nGraphQL field: `login`\nMediatR command: `LoginCommand` / `LoginCommandHandler`",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation AuthenticateUser($input: LoginInputTypeInput!) {\n  login(input: $input) {\n    success\n    token\n    expiresAt\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\"\n  }\n}"
+              }
+            },
+            "url": {
+              "raw": "{{graphqlUrl}}",
+              "host": ["{{graphqlUrl}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Login response indicates success\", function () {",
+                  "    pm.expect(response.data.login.success).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test(\"Login response contains a token\", function () {",
+                  "    pm.expect(response.data.login.token).to.exist;",
+                  "});",
+                  "",
+                  "if (response.data && response.data.login && response.data.login.token) {",
+                  "    pm.environment.set(\"accessToken\", response.data.login.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Validate Authorized Request",
+          "description": "Confirms that the stored JWT is valid and can access a protected GraphQL operation by calling Get API Statistics.\n\nGraphQL field: `apiStatistics`",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query ValidateAuthorizedRequest {\n  apiStatistics {\n    apiName\n    totalRequests\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{graphqlUrl}}",
+              "host": ["{{graphqlUrl}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"No authorization errors returned\", function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.errors).to.be.undefined;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 - Aggregation",
+      "description": "Retrieves unified aggregated data from GitHub, HackerNews, and Open-Meteo via both REST and GraphQL. Both surfaces call AggregateDataQuery / AggregateDataQueryHandler, which executes providers in parallel, applies filtering and sorting, and records in-memory statistics. All requests in this folder require a valid JWT.",
+      "item": [
+        {
+          "name": "Get Aggregated Data (REST)",
+          "description": "Runs the aggregation query via REST against all enabled providers with no filters applied. Returns unified items and per-provider status (success, fallback usage, response time, error message).\n\nEndpoint: `GET /api/aggregation`\nController: `AggregationController`\nMediatR query: `AggregateDataQuery` / `AggregateDataQueryHandler`",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/aggregation",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "aggregation"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Response contains items array\", function () {",
+                  "    pm.expect(response.items).to.be.an(\"array\");",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains provider statuses\", function () {",
+                  "    pm.expect(response.providers).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Aggregated Data by Keyword (REST)",
+          "description": "Runs the aggregation query via REST filtered by keyword (e.g. 'dotnet'). The keyword is applied to GitHub repository search and HackerNews story title filtering, and as an in-memory filter on the combined results.\n\nEndpoint: `GET /api/aggregation`\nController: `AggregationController`\nMediatR query: `AggregateDataQuery` / `AggregateDataQueryHandler`",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/aggregation?keyword=dotnet",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "aggregation"],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "dotnet"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Response contains items array\", function () {",
+                  "    pm.expect(response.items).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Aggregated Data Sorted by Relevance (REST)",
+          "description": "Runs the aggregation query via REST with results sorted by relevance score in descending order.\n\nEndpoint: `GET /api/aggregation`\nController: `AggregationController`\nMediatR query: `AggregateDataQuery` / `AggregateDataQueryHandler`",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/aggregation?sortBy=relevance&sortDirection=desc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "aggregation"],
+              "query": [
+                {
+                  "key": "sortBy",
+                  "value": "relevance"
+                },
+                {
+                  "key": "sortDirection",
+                  "value": "desc"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Response contains items array\", function () {",
+                  "    pm.expect(response.items).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Aggregated Data by Provider (REST)",
+          "description": "Runs the aggregation query via REST restricted to a single provider (e.g. GitHub only) using repeated `providers` query parameters.\n\nEndpoint: `GET /api/aggregation`\nController: `AggregationController`\nMediatR query: `AggregateDataQuery` / `AggregateDataQueryHandler`",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/aggregation?providers=GitHub",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "aggregation"],
+              "query": [
+                {
+                  "key": "providers",
+                  "value": "GitHub"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Only requested provider returned\", function () {",
+                  "    const sources = response.providers.map(p => p.source);",
+                  "    pm.expect(sources).to.eql([\"GitHub\"]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aggregate Data (GraphQL)",
+          "description": "Runs the aggregation query via GraphQL against all enabled providers with no filters applied. Returns unified items and per-provider status (success, fallback usage, response time, error message).\n\nGraphQL field: `aggregateData`\nMediatR query: `AggregateDataQuery` / `AggregateDataQueryHandler`",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query AggregateData($input: AggregateDataInputTypeInput!) {\n  aggregateData(input: $input) {\n    items {\n      source\n      title\n      description\n      category\n      publishedAt\n      relevanceScore\n      url\n    }\n    providers {\n      source\n      success\n      usedFallback\n      responseTimeMs\n      errorMessage\n    }\n  }\n}",
+                "variables": "{\n  \"input\": {}\n}"
+              }
+            },
+            "url": {
+              "raw": "{{graphqlUrl}}",
+              "host": ["{{graphqlUrl}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Aggregate data returns items array\", function () {",
+                  "    pm.expect(response.data.aggregateData.items).to.be.an(\"array\");",
+                  "});",
+                  "",
+                  "pm.test(\"Aggregate data returns provider statuses\", function () {",
+                  "    pm.expect(response.data.aggregateData.providers).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aggregate Data by Keyword (GraphQL)",
+          "description": "Runs the aggregation query via GraphQL filtered by keyword (e.g. 'dotnet'). The keyword is applied to GitHub repository search and HackerNews story title filtering, and as an in-memory filter on the combined results.\n\nGraphQL field: `aggregateData`\nMediatR query: `AggregateDataQuery` / `AggregateDataQueryHandler`",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query AggregateDataByKeyword($input: AggregateDataInputTypeInput!) {\n  aggregateData(input: $input) {\n    items {\n      source\n      title\n      description\n      category\n      publishedAt\n      relevanceScore\n      url\n    }\n    providers {\n      source\n      success\n      usedFallback\n      responseTimeMs\n      errorMessage\n    }\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"keyword\": \"dotnet\"\n  }\n}"
+              }
+            },
+            "url": {
+              "raw": "{{graphqlUrl}}",
+              "host": ["{{graphqlUrl}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Aggregate data returns items array\", function () {",
+                  "    pm.expect(response.data.aggregateData.items).to.be.an(\"array\");",
+                  "});",
+                  "",
+                  "pm.test(\"Aggregate data returns provider statuses\", function () {",
+                  "    pm.expect(response.data.aggregateData.providers).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aggregate Data Sorted by Relevance (GraphQL)",
+          "description": "Runs the aggregation query via GraphQL with results sorted by relevance score in descending order.\n\nGraphQL field: `aggregateData`\nMediatR query: `AggregateDataQuery` / `AggregateDataQueryHandler`",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query AggregateDataSortedByRelevance($input: AggregateDataInputTypeInput!) {\n  aggregateData(input: $input) {\n    items {\n      source\n      title\n      description\n      category\n      publishedAt\n      relevanceScore\n      url\n    }\n    providers {\n      source\n      success\n      usedFallback\n      responseTimeMs\n      errorMessage\n    }\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"sortBy\": \"relevance\",\n    \"sortDirection\": \"desc\"\n  }\n}"
+              }
+            },
+            "url": {
+              "raw": "{{graphqlUrl}}",
+              "host": ["{{graphqlUrl}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Aggregate data returns items array\", function () {",
+                  "    pm.expect(response.data.aggregateData.items).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aggregate Data by Provider (GraphQL)",
+          "description": "Runs the aggregation query via GraphQL restricted to a single provider (e.g. GitHub only) using the `providers` filter.\n\nGraphQL field: `aggregateData`\nMediatR query: `AggregateDataQuery` / `AggregateDataQueryHandler`",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query AggregateDataByProvider($input: AggregateDataInputTypeInput!) {\n  aggregateData(input: $input) {\n    items {\n      source\n      title\n      description\n      category\n      publishedAt\n      relevanceScore\n      url\n    }\n    providers {\n      source\n      success\n      usedFallback\n      responseTimeMs\n      errorMessage\n    }\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"providers\": [\"GitHub\"]\n  }\n}"
+              }
+            },
+            "url": {
+              "raw": "{{graphqlUrl}}",
+              "host": ["{{graphqlUrl}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Only requested provider returned\", function () {",
+                  "    const sources = response.data.aggregateData.providers.map(p => p.source);",
+                  "    pm.expect(sources).to.eql([\"GitHub\"]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Providers",
+      "description": "Not implemented. Reserved for future provider management endpoints (e.g. Get Providers, Get Provider Health, Refresh Provider). The current solution registers providers via IExternalApiClient and DI; provider configuration is not exposed through the API.",
+      "item": []
+    },
+    {
+      "name": "03 - Statistics",
+      "description": "Retrieves per-provider request statistics and performance buckets via both REST and GraphQL, sourced from the thread-safe in-memory statistics store (InMemoryApiStatisticsStore). Both surfaces call GetApiStatisticsQuery / GetApiStatisticsQueryHandler. This endpoint does not depend on PostgreSQL.",
+      "item": [
+        {
+          "name": "Get API Statistics (REST)",
+          "description": "Returns request statistics grouped by provider via REST: total/successful/failed request counts, average response time, and performance buckets (fast < 100ms, average 100-200ms, slow > 200ms).\n\nEndpoint: `GET /api/statistics`\nController: `StatisticsController`\nMediatR query: `GetApiStatisticsQuery` / `GetApiStatisticsQueryHandler`",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/statistics",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "statistics"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Statistics returned as array\", function () {",
+                  "    pm.expect(response.apis).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get API Statistics (GraphQL)",
+          "description": "Returns request statistics grouped by provider via GraphQL: total/successful/failed request counts, average response time, and performance buckets (fast < 100ms, average 100-200ms, slow > 200ms).\n\nGraphQL field: `apiStatistics`\nMediatR query: `GetApiStatisticsQuery` / `GetApiStatisticsQueryHandler`",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query GetApiStatistics {\n  apiStatistics {\n    apiName\n    totalRequests\n    successfulRequests\n    failedRequests\n    averageResponseTimeMs\n    buckets {\n      fast\n      average\n      slow\n    }\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{graphqlUrl}}",
+              "host": ["{{graphqlUrl}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Statistics returned as array\", function () {",
+                  "    pm.expect(response.data.apiStatistics).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 - Health & Diagnostics",
+      "description": "Not implemented. Reserved for a future REST health check endpoint (e.g. GET /health) and GraphQL schema introspection examples.",
+      "item": []
+    },
+    {
+      "name": "99 - Examples / Edge Cases",
+      "description": "Demonstrates validation, authorization, and error handling behavior of the API across both REST and GraphQL.",
+      "item": [
+        {
+          "name": "Get Aggregated Data without Token (REST)",
+          "description": "Calls the protected REST aggregation endpoint without an Authorization header. Expected to return 401 Unauthorized since the controller is decorated with [Authorize].\n\nEndpoint: `GET /api/aggregation`",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/aggregation",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "aggregation"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Aggregated Data with Invalid Sort Field (REST)",
+          "description": "Calls the REST aggregation endpoint with an invalid `sortBy` value. Expected to return a 400 Bad Request with error code INVALID_SORT_FIELD, handled by ExceptionHandlingMiddleware.\n\nEndpoint: `GET /api/aggregation`",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/aggregation?sortBy=invalid-field",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "aggregation"],
+              "query": [
+                {
+                  "key": "sortBy",
+                  "value": "invalid-field"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Response contains INVALID_SORT_FIELD error code\", function () {",
+                  "    pm.expect(response.error).to.eql(\"INVALID_SORT_FIELD\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aggregate Data without Token (GraphQL)",
+          "description": "Calls the protected `aggregateData` field without an Authorization header. Expected to return a GraphQL authorization error since the field is decorated with [Authorize].\n\nGraphQL field: `aggregateData`",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query AggregateDataWithoutToken($input: AggregateDataInputTypeInput!) {\n  aggregateData(input: $input) {\n    items {\n      source\n      title\n    }\n  }\n}",
+                "variables": "{\n  \"input\": {}\n}"
+              }
+            },
+            "url": {
+              "raw": "{{graphqlUrl}}",
+              "host": ["{{graphqlUrl}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Response contains an authorization error\", function () {",
+                  "    pm.expect(response.errors).to.exist;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aggregate Data with Invalid Sort Field (GraphQL)",
+          "description": "Calls `aggregateData` with an invalid `sortBy` value. Expected to return a GraphQL error with code INVALID_SORT_FIELD, handled by InvalidSortFieldExceptionFilter.\n\nGraphQL field: `aggregateData`",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query AggregateDataWithInvalidSortField($input: AggregateDataInputTypeInput!) {\n  aggregateData(input: $input) {\n    items {\n      source\n      title\n    }\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"sortBy\": \"invalid-field\"\n  }\n}"
+              }
+            },
+            "url": {
+              "raw": "{{graphqlUrl}}",
+              "host": ["{{graphqlUrl}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Response contains an INVALID_SORT_FIELD error\", function () {",
+                  "    pm.expect(response.errors).to.exist;",
+                  "    pm.expect(response.errors[0].extensions.code).to.eql(\"INVALID_SORT_FIELD\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Authenticate User with Invalid Credentials",
+          "description": "Calls the `login` mutation with incorrect credentials. Expected to return `success: false` and a null token.\n\nGraphQL field: `login`\nMediatR command: `LoginCommand` / `LoginCommandHandler`",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation AuthenticateUserWithInvalidCredentials($input: LoginInputTypeInput!) {\n  login(input: $input) {\n    success\n    token\n    expiresAt\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"username\": \"demo\",\n    \"password\": \"wrong-password\"\n  }\n}"
+              }
+            },
+            "url": {
+              "raw": "{{graphqlUrl}}",
+              "host": ["{{graphqlUrl}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const response = pm.response.json();",
+                  "",
+                  "pm.test(\"Login fails for invalid credentials\", function () {",
+                  "    pm.expect(response.data.login.success).to.eql(false);",
+                  "    pm.expect(response.data.login.token).to.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
