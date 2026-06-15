@@ -719,7 +719,8 @@ API Aggregator
  │   ├── Aggregate Data by Provider (GraphQL)
  │   ├── Get Aggregated Data (REST)
  │   ├── Get Aggregated Data by Keyword (REST)
- │   └── Get Aggregated Data Sorted by Relevance (REST)
+ │   ├── Get Aggregated Data Sorted by Relevance (REST)
+ │   └── Get Aggregated Data by Provider (REST)
  │
  ├── 02 - Providers
  │   └── (Not implemented — reserved for future provider management endpoints)
@@ -732,8 +733,10 @@ API Aggregator
  │   └── (Not implemented — reserved for a future /health endpoint)
  │
  └── 99 - Examples / Edge Cases
-     ├── Aggregate Data without Token
-     ├── Aggregate Data with Invalid Sort Field
+     ├── Aggregate Data without Token (GraphQL)
+     ├── Aggregate Data with Invalid Sort Field (GraphQL)
+     ├── Get Aggregated Data without Token (REST)
+     ├── Get Aggregated Data with Invalid Sort Field (REST)
      └── Authenticate User with Invalid Credentials
 ```
 
