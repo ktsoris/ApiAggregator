@@ -1,4 +1,5 @@
 ﻿using ApiAggregator.Application.Common.Interfaces;
+using ApiAggregator.Infrastructure.AI;
 using ApiAggregator.Infrastructure.Auth;
 using ApiAggregator.Infrastructure.Clients.GitHub;
 using ApiAggregator.Infrastructure.Clients.HackerNews;
@@ -33,6 +34,10 @@ public static class DependencyInjection
         services.Configure<AuthSettings>(configuration.GetSection("Auth"));
         services.AddSingleton<IAuthSettings>(sp =>
             sp.GetRequiredService<IOptions<AuthSettings>>().Value);
+
+        services.Configure<OpenAiSettings>(configuration.GetSection("OpenAI"));
+        services.AddHttpClient<AiErrorEnricher>();
+        services.AddScoped<IAiErrorEnricher, AiErrorEnricher>();
 
         return services;
     }
