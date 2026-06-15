@@ -27,6 +27,7 @@ public sealed class GitHubApiClient : IExternalApiClient
         _aiErrorEnricher = aiErrorEnricher;
 
         _httpClient.BaseAddress = new Uri("https://api.github.com/");
+        //_httpClient.BaseAddress = new Uri("https://api.github.invalid/"); // to test the AI agent error handling
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "ApiAggregator");
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
     }
